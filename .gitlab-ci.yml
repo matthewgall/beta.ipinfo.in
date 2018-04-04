@@ -1,0 +1,11 @@
+services:
+  - docker:dind
+
+stages:
+  - deploy
+
+build:
+  image: appropriate/curl:latest
+  stage: deploy
+  script:
+    - curl -X PUT "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/workers/script" -H "X-Auth-Email:$CF_ACCOUNT_EMAIL" -H "X-Auth-Key:$CF_ACCOUNT_KEY" -H "Content-Type:application/javascript" --data-binary "@app.js"
