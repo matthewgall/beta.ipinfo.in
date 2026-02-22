@@ -1,45 +1,122 @@
-addEventListener('fetch', event => {
-  event.respondWith(fetchAndRespond(event.request))
-})
+const TEXT_HEADERS = {
+  'Content-Type': 'text/plain; charset=utf-8'
+}
+const JSON_HEADERS = {
+  'Content-Type': 'application/json; charset=utf-8'
+}
+
+/** @typedef {(request: Request, url: URL) => Promise<Response> | Response} RouteHandler */
+
+/** @type {Record<string, RouteHandler>} */
+const routes = {
+  '/': handleIp,
+  '/ip': handleIp,
+  '/headers': handleHeaders
+}
+
+export default {
+  /** @param {Request} request */
+  async fetch(request) {
+    try {
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        return new Response('Method Not Allowed', {
+          status: 405,
+          headers: TEXT_HEADERS
+        })
+      }
+
+      const url = new URL(request.url)
+      const handler = routes[url.pathname]
+
+      if (!handler) {
+        return new Response('Not Found', {
+          status: 404,
+          headers: TEXT_HEADERS
+        })
+      }
+
+      return await handler(request, url)
+    } catch (error) {
+      return new Response('Internal Server Error', {
+        status: 500,
+        headers: TEXT_HEADERS
+      })
+    }
+  }
+}
 
 /**
- * Fetch and log a given request object
  * @param {Request} request
+ * @returns {Response}
  */
-async function fetchAndRespond(request) {
+function handleIp(request, url) {
+  const ip = request.headers.get('Cf-Connecting-Ip') || ''
 
-    let reqUrl = new URL(request.url).pathname
+  if (wantsJson(request, url)) {
+    return respondJson({
+      ip
+    })
+  }
 
-    data = {
-      'success': true,
-      'results': {
-        'ip': request.headers.get('Cf-Connecting-Ip'),
-        'headers': {}
-      }
-    }
+  return respondText(ip)
+}
 
-    for (let entry of request.headers.entries()) {
-      data['results']['headers'][entry[0]] = entry[1]
-    }
-    
-    if (reqUrl == '/' || reqUrl == '/ip') {
-      return new Response(data['results']['ip'], {
-        headers: {
-          'Content-Type': 'text/plain'
-        }
-      })
-    }
-    if (reqUrl == '/headers') {
-      resp = []
+/**
+ * @param {Request} request
+ * @returns {Response}
+ */
+function handleHeaders(request, url) {
+  const headers = {}
+  const headerEntries = Array.from(request.headers.entries())
 
-      for (let entry in data['results']['headers']) {
-        resp.push(entry + ': ' + data['results']['headers'][entry])
-      }
-      
-      return new Response(resp.join('\r\n'), {
-        headers: {
-          'Content-Type': 'text/plain'
-        }
-      })
-    }
+  for (const [key, value] of headerEntries) {
+    headers[key] = value
+  }
+
+  if (wantsJson(request, url)) {
+    return respondJson({
+      headers
+    })
+  }
+
+  const lines = Object.keys(headers)
+    .sort()
+    .map((key) => `${key}: ${headers[key]}`)
+
+  return respondText(lines.join('\r\n'))
+}
+
+/**
+ * @param {Request} request
+ * @param {URL} url
+ * @returns {boolean}
+ */
+function wantsJson(request, url) {
+  const format = url.searchParams.get('format')
+  if (format && format.toLowerCase() === 'json') {
+    return true
+  }
+
+  const accept = request.headers.get('Accept') || ''
+  return accept.includes('application/json')
+}
+
+/**
+ * @param {string} body
+ * @returns {Response}
+ */
+function respondText(body) {
+  return new Response(body, {
+    headers: TEXT_HEADERS
+  })
+}
+
+/**
+ * @param {Record<string, unknown>} payload
+ * @returns {Response}
+ */
+function respondJson(payload) {
+  return new Response(JSON.stringify(payload), {
+    headers: JSON_HEADERS
+  })
 }
